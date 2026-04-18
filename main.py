@@ -13,6 +13,7 @@ from rank_bm25 import BM25Okapi
 
 import nltk
 nltk.download('punkt')
+nltk.download('punkt_tab')
 from nltk.tokenize import sent_tokenize
 
 # pytesseract.pytesseract.tesseract_cmd = r"F:\Tesseract\tesseract.exe"
@@ -85,48 +86,16 @@ class SearchEngine:
         self.texts = [c["text"] for c in chunks]
         self.meta = chunks
 
-        print("Loading embedding model...")
-        self.model = SentenceTransformer("intfloat/multilingual-e5-base")
-
-        print("Embedding...")
-        embeddings = self.model.encode(self.texts, show_progress_bar=True)
-
-        self.embeddings = np.array(embeddings).astype("float32")
-
-        # FAISS
-        dim = self.embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(dim)
-        self.index.add(self.embeddings)
-
         # BM25
         tokenized = [t.lower().split() for t in self.texts]
         self.bm25 = BM25Okapi(tokenized)
 
     def search(self, query, k=10):
-        # semantic
-        q_emb = self.model.encode([query]).astype("float32")
-        _, idxs = self.index.search(q_emb, k)
-
-        semantic_results = [self.meta[i] for i in idxs[0]]
-
         # BM25
         scores = self.bm25.get_scores(query.lower().split())
-        top_bm25 = np.argsort(scores)[::-1][:k]
-        bm25_results = [self.meta[i] for i in top_bm25]
+        top = np.argsort(scores)[::-1][:k]
 
-        # объединение
-        results = semantic_results + bm25_results
-
-        # deduplicate
-        seen = set()
-        final = []
-        for r in results:
-            key = r["text"][:100]
-            if key not in seen:
-                seen.add(key)
-                final.append(r)
-
-        return final[:k]
+        return [self.meta[i] for i in top]
 
 
 # =========================
