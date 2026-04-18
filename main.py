@@ -6,17 +6,21 @@ import pandas as pd
 from tqdm import tqdm
 from PIL import Image
 
-from sentence_transformers import SentenceTransformer
-import faiss
 import numpy as np
 from rank_bm25 import BM25Okapi
+from sentence_transformers import SentenceTransformer
+import pymorphy3
 
-import nltk
-nltk.download('punkt')
-nltk.download('punkt_tab')
-from nltk.tokenize import sent_tokenize
+# =========================
+# 0. Нормализация
+# =========================
 
-# pytesseract.pytesseract.tesseract_cmd = r"F:\Tesseract\tesseract.exe"
+morph = pymorphy3.MorphAnalyzer()
+
+def tokenize(text):
+    words = re.findall(r'\w+', text.lower())
+    return [morph.parse(w)[0].normal_form for w in words]
+
 
 # =========================
 # 1. Загрузка документов
@@ -29,7 +33,7 @@ def extract_text_from_pdf(path):
     for page_num, page in enumerate(doc):
         text = page.get_text()
 
-        # если пусто — OCR
+        # OCR если пусто
         if not text.strip():
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -45,27 +49,19 @@ def extract_text_from_pdf(path):
 
 
 # =========================
-# 2. Чанкинг (по пунктам)
+# 2. Чанкинг
 # =========================
 
 def split_into_chunks(pages):
     chunks = []
 
     for page in pages:
-        text = page["text"]
-
-        if not text:
-            continue
-
-        parts = re.split(r"(п\.\s?\d+(?:\.\d+)*)", text)
+        parts = re.split(r'\n{2,}', page["text"])
 
         for part in parts:
-            if not part:
-                continue
-
             part = part.strip()
 
-            if len(part) < 50:
+            if len(part) < 100:
                 continue
 
             chunks.append({
@@ -78,7 +74,7 @@ def split_into_chunks(pages):
 
 
 # =========================
-# 3. Индексация
+# 3. Hybrid Search Engine
 # =========================
 
 class SearchEngine:
@@ -86,16 +82,34 @@ class SearchEngine:
         self.texts = [c["text"] for c in chunks]
         self.meta = chunks
 
-        # BM25
-        tokenized = [t.lower().split() for t in self.texts]
-        self.bm25 = BM25Okapi(tokenized)
+        print("Tokenizing...")
+        self.tokenized = [tokenize(t) for t in self.texts]
+        self.bm25 = BM25Okapi(self.tokenized)
+
+        print("Loading embedding model...")
+        self.model = SentenceTransformer("intfloat/multilingual-e5-small")
+
+        print("Encoding...")
+        self.embeddings = self.model.encode(self.texts, show_progress_bar=True)
 
     def search(self, query, k=10):
         # BM25
-        scores = self.bm25.get_scores(query.lower().split())
-        top = np.argsort(scores)[::-1][:k]
+        bm25_scores = self.bm25.get_scores(tokenize(query))
 
-        return [self.meta[i] for i in top]
+        # embeddings
+        q_emb = self.model.encode([query])[0]
+        emb_scores = np.dot(self.embeddings, q_emb)
+
+        # нормализация
+        bm25_scores = bm25_scores / (bm25_scores.max() + 1e-6)
+        emb_scores = emb_scores / (np.max(emb_scores) + 1e-6)
+
+        # hybrid score
+        scores = 0.5 * bm25_scores + 0.5 * emb_scores
+
+        top_idx = np.argsort(scores)[::-1][:k]
+
+        return [self.meta[i] for i in top_idx]
 
 
 # =========================
@@ -103,39 +117,30 @@ class SearchEngine:
 # =========================
 
 def extract_answer(question, chunks):
-    # разбиваем на предложения
     sentences = []
+    metas = []
 
     for c in chunks:
-        sents = sent_tokenize(c["text"])
+        sents = re.split(r'(?<=[.!?])\s+', c["text"])
+
         for s in sents:
-            sentences.append({
-                "sentence": s,
-                "meta": c
-            })
+            if len(s) < 30:
+                continue
 
-    # простая релевантность
-    best = None
-    best_score = 0
+            sentences.append(tokenize(s))
+            metas.append((s, c))
 
-    q_words = set(question.lower().split())
+    bm25 = BM25Okapi(sentences)
+    scores = bm25.get_scores(tokenize(question))
 
-    for s in sentences:
-        s_words = set(s["sentence"].lower().split())
-        score = len(q_words & s_words)
+    best_idx = int(np.argmax(scores))
+    best_sent, meta = metas[best_idx]
 
-        if score > best_score:
-            best_score = score
-            best = s
-
-    if best:
-        return {
-            "answer": best["sentence"],
-            "source": best["meta"]["source"],
-            "page": best["meta"]["page"]
-        }
-
-    return {"answer": "нет в документе"}
+    return {
+        "answer": best_sent,
+        "source": meta["source"],
+        "page": meta["page"]
+    }
 
 
 # =========================
@@ -168,7 +173,7 @@ def main():
     results = []
 
     for _, row in tqdm(df.iterrows(), total=len(df)):
-        q = row["question"]  # поправь под свой CSV
+        q = row["question"]
 
         found_chunks = engine.search(q, k=10)
         answer = extract_answer(q, found_chunks)
@@ -181,9 +186,9 @@ def main():
         })
 
     out = pd.DataFrame(results)
-    out.to_csv("answers.csv", index=False)
+    out.to_csv("new_answers.csv", index=False)
 
-    print("Done! answers.csv saved.")
+    print("Done! new_answers.csv saved.")
 
 
 if __name__ == "__main__":
