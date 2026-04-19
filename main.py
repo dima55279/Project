@@ -1,6 +1,6 @@
 import os
 import re
-import fitz  # PyMuPDF
+import fitz
 import pytesseract
 import pandas as pd
 from tqdm import tqdm
@@ -8,7 +8,7 @@ from PIL import Image
 
 import numpy as np
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import pymorphy3
 
 # =========================
@@ -23,7 +23,7 @@ def tokenize(text):
 
 
 # =========================
-# 1. Загрузка документов
+# 1. Загрузка PDF
 # =========================
 
 def extract_text_from_pdf(path):
@@ -33,7 +33,6 @@ def extract_text_from_pdf(path):
     for page_num, page in tqdm(enumerate(doc), total=len(doc), desc=f"OCR {os.path.basename(path)}"):
         text = page.get_text()
 
-        # OCR если пусто
         if not text.strip():
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -49,19 +48,21 @@ def extract_text_from_pdf(path):
 
 
 # =========================
-# 2. Чанкинг
+# 2. Чанкинг (лучше)
 # =========================
 
 def split_into_chunks(pages):
     chunks = []
 
-    for page in tqdm(pages, desc="Chunking pages"):
-        parts = re.split(r'\n{2,}', page["text"])
+    for page in tqdm(pages, desc="Chunking"):
+        text = page["text"]
+
+        parts = re.split(r'\n{2,}', text)
 
         for part in parts:
             part = part.strip()
 
-            if len(part) < 100:
+            if len(part) < 150:
                 continue
 
             chunks.append({
@@ -74,7 +75,7 @@ def split_into_chunks(pages):
 
 
 # =========================
-# 3. Hybrid Search Engine
+# 3. Hybrid + Reranker
 # =========================
 
 class SearchEngine:
@@ -83,70 +84,79 @@ class SearchEngine:
         self.meta = chunks
 
         print("Tokenizing...")
-        self.tokenized = [
-            tokenize(t) for t in tqdm(self.texts, desc="Tokenizing texts")
-        ]
+        self.tokenized = [tokenize(t) for t in tqdm(self.texts)]
         self.bm25 = BM25Okapi(self.tokenized)
 
-        print("Loading embedding model...")
+        print("Embedding model...")
         self.model = SentenceTransformer("intfloat/multilingual-e5-small")
 
-        print("Encoding embeddings...")
-        self.embeddings = self.model.encode(
-            self.texts,
-            show_progress_bar=True,
-            batch_size=32
-        )
+        print("Encoding...")
+        self.embeddings = self.model.encode(self.texts, show_progress_bar=True)
 
-    def search(self, query, k=10):
+        print("Loading reranker...")
+        self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+    def search(self, query, k=20):
+        # BM25
         bm25_scores = self.bm25.get_scores(tokenize(query))
 
+        # Embeddings
         q_emb = self.model.encode([query])[0]
         emb_scores = np.dot(self.embeddings, q_emb)
 
-        bm25_scores = bm25_scores / (bm25_scores.max() + 1e-6)
-        emb_scores = emb_scores / (np.max(emb_scores) + 1e-6)
+        # normalize
+        bm25_scores /= (bm25_scores.max() + 1e-6)
+        emb_scores /= (np.max(emb_scores) + 1e-6)
 
         scores = 0.5 * bm25_scores + 0.5 * emb_scores
 
         top_idx = np.argsort(scores)[::-1][:k]
 
-        return [self.meta[i] for i in top_idx]
+        candidates = [self.meta[i] for i in top_idx]
+
+        # 🔥 reranking
+        pairs = [(query, c["text"]) for c in candidates]
+        rerank_scores = self.reranker.predict(pairs)
+
+        reranked = sorted(zip(candidates, rerank_scores), key=lambda x: x[1], reverse=True)
+
+        return [r[0] for r in reranked[:5]]
 
 
 # =========================
-# 4. Извлечение ответа
+# 4. Ответ (лучшее предложение)
 # =========================
 
 def extract_answer(question, chunks):
-    sentences = []
-    metas = []
+    best = None
+    best_score = -1
 
-    for c in tqdm(chunks, desc="Splitting into sentences", leave=False):
-        sents = re.split(r'(?<=[.!?])\s+', c["text"])
+    for c in chunks:
+        sentences = re.split(r'(?<=[.!?])\s+', c["text"])
 
-        for s in sents:
+        for s in sentences:
             if len(s) < 30:
                 continue
 
-            sentences.append(tokenize(s))
-            metas.append((s, c))
+            score = len(set(tokenize(question)) & set(tokenize(s)))
 
-    bm25 = BM25Okapi(sentences)
-    scores = bm25.get_scores(tokenize(question))
+            if score > best_score:
+                best_score = score
+                best = (s, c)
 
-    best_idx = int(np.argmax(scores))
-    best_sent, meta = metas[best_idx]
+    if best:
+        s, meta = best
+        return {
+            "answer": s,
+            "source": meta["source"],
+            "page": meta["page"]
+        }
 
-    return {
-        "answer": best_sent,
-        "source": meta["source"],
-        "page": meta["page"]
-    }
+    return {"answer": "нет ответа"}
 
 
 # =========================
-# 5. Основной pipeline
+# 5. MAIN
 # =========================
 
 def main():
@@ -156,42 +166,38 @@ def main():
     print("Loading documents...")
     all_pages = []
 
-    pdf_files = [f for f in os.listdir(docs_path) if f.endswith(".pdf")]
+    pdfs = [f for f in os.listdir(docs_path) if f.endswith(".pdf")]
 
-    for file in tqdm(pdf_files, desc="Processing PDFs"):
-        pages = extract_text_from_pdf(os.path.join(docs_path, file))
+    for f in tqdm(pdfs):
+        pages = extract_text_from_pdf(os.path.join(docs_path, f))
         all_pages.extend(pages)
 
-    print("Chunking...")
     chunks = split_into_chunks(all_pages)
 
-    print(f"Total chunks: {len(chunks)}")
+    print(f"Chunks: {len(chunks)}")
 
-    print("Building search engine...")
     engine = SearchEngine(chunks)
 
-    print("Loading questions...")
     df = pd.read_csv(questions_path)
 
     results = []
 
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Answering questions"):
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Answering"):
         q = row["question"]
 
-        found_chunks = engine.search(q, k=10)
-        answer = extract_answer(q, found_chunks)
+        found = engine.search(q)
+        ans = extract_answer(q, found)
 
         results.append({
             "question": q,
-            "answer": answer["answer"],
-            "source": answer.get("source", ""),
-            "page": answer.get("page", "")
+            "answer": ans["answer"],
+            "source": ans.get("source", ""),
+            "page": ans.get("page", "")
         })
 
-    out = pd.DataFrame(results)
-    out.to_csv("new_answers.csv", index=False)
+    pd.DataFrame(results).to_csv("answers_final.csv", index=False)
 
-    print("Done! new_answers.csv saved.")
+    print("DONE")
 
 
 if __name__ == "__main__":
