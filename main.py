@@ -10,9 +10,10 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import pymorphy3
+import ollama
 
 # =========================
-# 0. Нормализация
+# Нормализация
 # =========================
 
 morph = pymorphy3.MorphAnalyzer()
@@ -23,14 +24,14 @@ def tokenize(text):
 
 
 # =========================
-# 1. Загрузка PDF
+# PDF
 # =========================
 
 def extract_text_from_pdf(path):
     doc = fitz.open(path)
     texts = []
 
-    for page_num, page in tqdm(enumerate(doc), total=len(doc), desc=f"OCR {os.path.basename(path)}"):
+    for page_num, page in enumerate(doc):
         text = page.get_text()
 
         if not text.strip():
@@ -48,16 +49,14 @@ def extract_text_from_pdf(path):
 
 
 # =========================
-# 2. Чанкинг (лучше)
+# Чанкинг
 # =========================
 
 def split_into_chunks(pages):
     chunks = []
 
-    for page in tqdm(pages, desc="Chunking"):
-        text = page["text"]
-
-        parts = re.split(r'\n{2,}', text)
+    for page in pages:
+        parts = re.split(r'\n{2,}', page["text"])
 
         for part in parts:
             part = part.strip()
@@ -75,7 +74,7 @@ def split_into_chunks(pages):
 
 
 # =========================
-# 3. Hybrid + Reranker
+# SEARCH + RERANK
 # =========================
 
 class SearchEngine:
@@ -83,38 +82,29 @@ class SearchEngine:
         self.texts = [c["text"] for c in chunks]
         self.meta = chunks
 
-        print("Tokenizing...")
-        self.tokenized = [tokenize(t) for t in tqdm(self.texts)]
+        self.tokenized = [tokenize(t) for t in self.texts]
         self.bm25 = BM25Okapi(self.tokenized)
 
-        print("Embedding model...")
         self.model = SentenceTransformer("intfloat/multilingual-e5-small")
+        self.embeddings = self.model.encode(self.texts)
 
-        print("Encoding...")
-        self.embeddings = self.model.encode(self.texts, show_progress_bar=True)
-
-        print("Loading reranker...")
-        self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        # 🔥 лучше для русского
+        self.reranker = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
     def search(self, query, k=20):
-        # BM25
         bm25_scores = self.bm25.get_scores(tokenize(query))
 
-        # Embeddings
         q_emb = self.model.encode([query])[0]
         emb_scores = np.dot(self.embeddings, q_emb)
 
-        # normalize
         bm25_scores /= (bm25_scores.max() + 1e-6)
         emb_scores /= (np.max(emb_scores) + 1e-6)
 
         scores = 0.5 * bm25_scores + 0.5 * emb_scores
 
         top_idx = np.argsort(scores)[::-1][:k]
-
         candidates = [self.meta[i] for i in top_idx]
 
-        # 🔥 reranking
         pairs = [(query, c["text"]) for c in candidates]
         rerank_scores = self.reranker.predict(pairs)
 
@@ -124,57 +114,47 @@ class SearchEngine:
 
 
 # =========================
-# 4. Ответ (лучшее предложение)
+# LLM ответ
 # =========================
 
-def extract_answer(question, chunks):
-    best = None
-    best_score = -1
+def generate_answer(question, chunks):
+    context = "\n\n".join([c["text"] for c in chunks])
 
-    for c in chunks:
-        sentences = re.split(r'(?<=[.!?])\s+', c["text"])
+    prompt = f"""
+Ты помощник, отвечающий строго по документам.
 
-        for s in sentences:
-            if len(s) < 30:
-                continue
+Контекст:
+{context}
 
-            score = len(set(tokenize(question)) & set(tokenize(s)))
+Вопрос:
+{question}
 
-            if score > best_score:
-                best_score = score
-                best = (s, c)
+Ответь кратко и по делу. Если ответа нет — скажи "нет информации".
+"""
 
-    if best:
-        s, meta = best
-        return {
-            "answer": s,
-            "source": meta["source"],
-            "page": meta["page"]
-        }
+    response = ollama.chat(
+        model="mistral",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-    return {"answer": "нет ответа"}
+    return response["message"]["content"]
 
 
 # =========================
-# 5. MAIN
+# MAIN
 # =========================
 
 def main():
     docs_path = "data/docs"
     questions_path = "data/questions.csv"
 
-    print("Loading documents...")
     all_pages = []
 
-    pdfs = [f for f in os.listdir(docs_path) if f.endswith(".pdf")]
-
-    for f in tqdm(pdfs):
-        pages = extract_text_from_pdf(os.path.join(docs_path, f))
-        all_pages.extend(pages)
+    for file in os.listdir(docs_path):
+        if file.endswith(".pdf"):
+            all_pages.extend(extract_text_from_pdf(os.path.join(docs_path, file)))
 
     chunks = split_into_chunks(all_pages)
-
-    print(f"Chunks: {len(chunks)}")
 
     engine = SearchEngine(chunks)
 
@@ -182,20 +162,18 @@ def main():
 
     results = []
 
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Answering"):
+    for _, row in tqdm(df.iterrows(), total=len(df)):
         q = row["question"]
 
         found = engine.search(q)
-        ans = extract_answer(q, found)
+        answer = generate_answer(q, found)
 
         results.append({
             "question": q,
-            "answer": ans["answer"],
-            "source": ans.get("source", ""),
-            "page": ans.get("page", "")
+            "answer": answer
         })
 
-    pd.DataFrame(results).to_csv("answers_final.csv", index=False)
+    pd.DataFrame(results).to_csv("answers_llm.csv", index=False)
 
     print("DONE")
 
