@@ -10,9 +10,18 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import pymorphy3
-import ollama
 
 from functools import lru_cache
+from openai import OpenAI
+
+# =========================
+# 🔥 API клиент
+# =========================
+
+client = OpenAI(
+    base_url="https://polza.ai/api/v1",
+    api_key="pza_D5xEW88zif5GhGYdvkmDYT3m_bwV_Utb",
+)
 
 # =========================
 # 0. Нормализация (с кешем)
@@ -125,7 +134,7 @@ class SearchEngine:
         top_idx = np.argpartition(scores, -k)[-k:]
         candidates = [self.meta[i] for i in top_idx]
 
-        # 🔥 batch reranking
+        # reranking
         pairs = [(query, c["text"]) for c in candidates]
 
         rerank_scores = self.reranker.predict(
@@ -154,11 +163,10 @@ def collect_sources(chunks):
 
 
 # =========================
-# 5. LLM (с ограничением)
+# 5. LLM (API версия)
 # =========================
 
 def generate_answer(question, chunks):
-    # 🔥 ограничиваем контекст (ускорение + стабильность)
     context = "\n\n".join([c["text"][:800] for c in chunks])
 
     prompt = f"""
@@ -170,15 +178,21 @@ def generate_answer(question, chunks):
 Вопрос:
 {question}
 
-Ответь кратко и строго по контексту.
+Правила:
+- Отвечай ТОЛЬКО по контексту
+- Если ответа нет — напиши "нет в документах"
+- Не добавляй ничего от себя
+
+Ответ:
 """
 
-    response = ollama.chat(
-        model="mistral",
-        messages=[{"role": "user", "content": prompt}]
+    response = client.chat.completions.create(
+        model="openai/gpt-5.4-nano",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
     )
 
-    return response["message"]["content"]
+    return response.choices[0].message.content
 
 
 # =========================
@@ -220,7 +234,7 @@ def main():
             "sources": sources
         })
 
-    pd.DataFrame(results).to_csv("new_answers_LLM.csv", index=False)
+    pd.DataFrame(results).to_csv("answers_GPT.csv", index=False)
 
     print("DONE")
 
