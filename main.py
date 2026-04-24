@@ -8,11 +8,12 @@ from PIL import Image
 
 import numpy as np
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import CrossEncoder
 import pymorphy3
 
 from functools import lru_cache
 from openai import OpenAI
+import pickle
 
 # =========================
 # 🔥 API клиент
@@ -23,8 +24,11 @@ client = OpenAI(
     api_key="pza_D5xEW88zif5GhGYdvkmDYT3m_bwV_Utb",
 )
 
+EMBED_MODEL = "openai/text-embedding-3-large"  # можно заменить на large
+EMBED_CACHE_PATH = "embeddings_cache.pkl"
+
 # =========================
-# 0. Нормализация (с кешем)
+# 0. Нормализация
 # =========================
 
 morph = pymorphy3.MorphAnalyzer()
@@ -36,6 +40,52 @@ def normalize_word(word):
 def tokenize(text):
     words = re.findall(r'\w+', text.lower())
     return [normalize_word(w) for w in words]
+
+
+# =========================
+# 🔥 Embeddings
+# =========================
+
+def get_embeddings_batch(texts):
+    response = client.embeddings.create(
+        model=EMBED_MODEL,
+        input=texts
+    )
+    return [np.array(e.embedding) for e in response.data]
+
+
+# =========================
+# 🔥 Query Expansion
+# =========================
+
+def expand_query(query):
+    try:
+        prompt = f"""
+Переформулируй вопрос для поиска по юридическим документам.
+Дай 3 варианта.
+
+Вопрос:
+{query}
+"""
+
+        response = client.chat.completions.create(
+            model="openai/gpt-5.4-nano",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+
+        text = response.choices[0].message.content
+
+        variants = [
+            v.strip("-• ").strip()
+            for v in text.split("\n")
+            if len(v.strip()) > 5
+        ]
+
+        return [query] + variants
+
+    except:
+        return [query]
 
 
 # =========================
@@ -102,39 +152,56 @@ class SearchEngine:
 
         self.bm25 = BM25Okapi(self.tokenized)
 
-        print("Embedding model...")
-        self.model = SentenceTransformer("intfloat/multilingual-e5-base")
+        # =========================
+        # 🔥 Embeddings (с кешем)
+        # =========================
 
-        print("Encoding...")
-        self.embeddings = self.model.encode(
-            self.texts,
-            batch_size=64,
-            show_progress_bar=True
-        )
+        if os.path.exists(EMBED_CACHE_PATH):
+            print("Loading embeddings from cache...")
+            with open(EMBED_CACHE_PATH, "rb") as f:
+                self.embeddings = pickle.load(f)
+        else:
+            print("Encoding with OpenAI embeddings...")
+
+            all_embeddings = []
+            batch_size = 64
+
+            for i in tqdm(range(0, len(self.texts), batch_size)):
+                batch = self.texts[i:i+batch_size]
+                emb = get_embeddings_batch(batch)
+                all_embeddings.extend(emb)
+
+            self.embeddings = np.vstack(all_embeddings)
+
+            with open(EMBED_CACHE_PATH, "wb") as f:
+                pickle.dump(self.embeddings, f)
 
         print("Loading reranker...")
         self.reranker = CrossEncoder(
-            "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+            "jinaai/jina-reranker-v2-base-multilingual"
         )
 
-    def search(self, query, k=20):
-        q_tokens = tokenize(query)
+    def search(self, query, k=60):
+        queries = expand_query(query)
 
-        bm25_scores = self.bm25.get_scores(q_tokens)
+        all_scores = np.zeros(len(self.texts))
 
-        q_emb = self.model.encode([query])[0]
-        emb_scores = np.dot(self.embeddings, q_emb)
+        for q in queries:
+            q_tokens = tokenize(q)
 
-        # normalize
-        bm25_scores /= (bm25_scores.max() + 1e-6)
-        emb_scores /= (np.max(emb_scores) + 1e-6)
+            bm25_scores = self.bm25.get_scores(q_tokens)
 
-        scores = 0.5 * bm25_scores + 0.5 * emb_scores
+            q_emb = get_embeddings_batch([q])[0]
+            emb_scores = np.dot(self.embeddings, q_emb)
 
-        top_idx = np.argpartition(scores, -k)[-k:]
+            bm25_scores /= (bm25_scores.max() + 1e-6)
+            emb_scores /= (np.max(emb_scores) + 1e-6)
+
+            all_scores += 0.5 * bm25_scores + 0.5 * emb_scores
+
+        top_idx = np.argpartition(all_scores, -k)[-k:]
         candidates = [self.meta[i] for i in top_idx]
 
-        # reranking
         pairs = [(query, c["text"]) for c in candidates]
 
         rerank_scores = self.reranker.predict(
@@ -149,7 +216,7 @@ class SearchEngine:
             reverse=True
         )
 
-        return [r[0] for r in reranked[:5]]
+        return [r[0] for r in reranked[:10]]
 
 
 # =========================
@@ -163,14 +230,14 @@ def collect_sources(chunks):
 
 
 # =========================
-# 5. LLM (API версия)
+# 5. LLM
 # =========================
 
 def generate_answer(question, chunks):
-    context = "\n\n".join([c["text"][:800] for c in chunks])
+    context = "\n\n".join([c["text"][:1500] for c in chunks])
 
     prompt = f"""
-Ты помощник, отвечающий строго по документам.
+Ты помощник, работающий с юридическими документами.
 
 Контекст:
 {context}
@@ -178,10 +245,11 @@ def generate_answer(question, chunks):
 Вопрос:
 {question}
 
-Правила:
-- Отвечай ТОЛЬКО по контексту
-- Если ответа нет — напиши "нет в документах"
-- Не добавляй ничего от себя
+Инструкция:
+- Найди ответ в тексте
+- Если есть частичный ответ — дай его
+- Если нет информации — напиши "нет в документах"
+- Не выдумывай
 
 Ответ:
 """
@@ -234,7 +302,7 @@ def main():
             "sources": sources
         })
 
-    pd.DataFrame(results).to_csv("answers_GPT.csv", index=False)
+    pd.DataFrame(results).to_csv("answers_GPT_v2.csv", index=False)
 
     print("DONE")
 
