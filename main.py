@@ -178,7 +178,7 @@ class SearchEngine:
 
         print("Loading reranker...")
         self.reranker = CrossEncoder(
-            "jinaai/jina-reranker-v2-base-multilingual"
+            "BAAI/bge-reranker-base"
         )
 
     def search(self, query, k=60):
