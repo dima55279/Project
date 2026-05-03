@@ -3,6 +3,7 @@ import torch
 from PIL import Image
 from pdf2image import convert_from_path
 from transformers import AutoModelForImageTextToText, AutoProcessor
+from tqdm import tqdm
 
 from chandra.model.hf import generate_hf
 from chandra.model.schema import BatchInputItem
@@ -12,11 +13,11 @@ from chandra.output import parse_markdown
 PDF_PATH = "data/docs/Data1_10_10855_index.pdf"
 OUTPUT_MD = "output.md"
 
-DPI = 200            # 150–200 оптимально
-BATCH_SIZE = 4       # увеличь до 8 если хватает VRAM
-RESIZE_FACTOR = 1.0  # 1.0 = без ресайза, 0.5 = ускорение
-
+DPI = 200
+BATCH_SIZE = 4
+RESIZE_FACTOR = 1.0
 # ==========================================
+
 
 def load_model():
     print("Loading model...")
@@ -39,20 +40,22 @@ def load_model():
 
 def pdf_to_images(pdf_path):
     print("Converting PDF to images...")
+
     pages = convert_from_path(pdf_path, dpi=DPI)
 
-    if RESIZE_FACTOR != 1.0:
-        resized_pages = []
-        for p in pages:
+    processed_pages = []
+    for page in tqdm(pages, desc="Preparing pages"):
+        if RESIZE_FACTOR != 1.0:
             new_size = (
-                int(p.width * RESIZE_FACTOR),
-                int(p.height * RESIZE_FACTOR),
+                int(page.width * RESIZE_FACTOR),
+                int(page.height * RESIZE_FACTOR),
             )
-            resized_pages.append(p.resize(new_size))
-        pages = resized_pages
+            page = page.resize(new_size)
 
-    print(f"Total pages: {len(pages)}")
-    return pages
+        processed_pages.append(page)
+
+    print(f"Total pages: {len(processed_pages)}")
+    return processed_pages
 
 
 def warmup(model, sample_page):
@@ -66,18 +69,18 @@ def warmup(model, sample_page):
 
 def process_pages(model, pages):
     print("Processing pages...")
+
     all_markdown = []
+    total_batches = (len(pages) + BATCH_SIZE - 1) // BATCH_SIZE
 
     with torch.inference_mode():
-        for i in range(0, len(pages), BATCH_SIZE):
+        for i in tqdm(range(0, len(pages), BATCH_SIZE), desc="Batches", total=total_batches):
             batch_pages = pages[i:i + BATCH_SIZE]
 
             batch = [
                 BatchInputItem(image=page, prompt_type="ocr_layout")
                 for page in batch_pages
             ]
-
-            print(f"Batch {i//BATCH_SIZE + 1}...")
 
             results = generate_hf(batch, model)
 
