@@ -11,7 +11,7 @@ from chandra.output import parse_markdown
 
 # ================= CONFIG =================
 PDF_PATH = "data/docs/Data1_10_10855_index.pdf"
-OUTPUT_MD = "output.md"
+OUTPUT_MD = "Data1_10_10855_index.md"
 
 DPI = 200
 BATCH_SIZE = 4
