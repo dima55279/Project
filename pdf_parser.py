@@ -2,8 +2,8 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import pymupdf
 import torch
-import pymupdf  # pip install pymupdf
 from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -34,14 +34,19 @@ BATCH_SIZE = 16
 
 PROMPT_TYPE = "ocr"
 
-# "ocr_layout" = сильно медленнее
-# "ocr" = быстрее
+# "ocr_layout" = точнее layout, но сильно медленнее
+# "ocr" = значительно быстрее
 
-USE_FLASH_ATTN = True
 USE_TORCH_COMPILE = True
 
 # =========================================================
 
+# SDPA (PyTorch native fast attention)
+torch.backends.cuda.enable_flash_sdp(True)
+torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch.backends.cuda.enable_math_sdp(False)
+
+torch.set_float32_matmul_precision("high")
 
 # =========================================================
 # FAST PDF RENDER
@@ -49,6 +54,7 @@ USE_TORCH_COMPILE = True
 
 def render_page(page, dpi=110, max_side=1280):
     zoom = dpi / 72
+
     matrix = pymupdf.Matrix(zoom, zoom)
 
     pix = page.get_pixmap(
@@ -68,7 +74,10 @@ def render_page(page, dpi=110, max_side=1280):
 
     if scale < 1:
         img = img.resize(
-            (int(w * scale), int(h * scale)),
+            (
+                int(w * scale),
+                int(h * scale),
+            ),
             Image.LANCZOS,
         )
 
@@ -115,17 +124,11 @@ def load_model():
 
     t0 = time.time()
 
-    kwargs = dict(
-        torch_dtype=torch.bfloat16,
-        device_map="cuda",
-    )
-
-    if USE_FLASH_ATTN:
-        kwargs["attn_implementation"] = "flash_attention_2"
-
     model = AutoModelForImageTextToText.from_pretrained(
         MODEL_NAME,
-        **kwargs,
+        torch_dtype=torch.bfloat16,
+        device_map="cuda",
+        attn_implementation="sdpa",
     )
 
     processor = AutoProcessor.from_pretrained(MODEL_NAME)
@@ -207,7 +210,9 @@ def process_pages(model, pages):
                 for page in batch_pages
             ]
 
-            # ---------------- INFERENCE ----------------
+            # =================================================
+            # INFERENCE
+            # =================================================
 
             t0 = time.time()
 
@@ -216,13 +221,17 @@ def process_pages(model, pages):
             torch.cuda.synchronize()
 
             inference_dt = time.time() - t0
+
             inference_total += inference_dt
 
-            # ---------------- PARSE ----------------
+            # =================================================
+            # MARKDOWN PARSE
+            # =================================================
 
             t0 = time.time()
 
             for j, result in enumerate(results):
+
                 page_num = i + j + 1
 
                 markdown = parse_markdown(result.raw)
@@ -232,6 +241,7 @@ def process_pages(model, pages):
                 )
 
             parsing_dt = time.time() - t0
+
             parsing_total += parsing_dt
 
     print("\n==============================")
