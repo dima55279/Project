@@ -1,0 +1,15 @@
+langchain
+langgraph
+langchain-community
+langchain-huggingface
+langchain-ollama
+langchain-text-splitters
+sentence-transformers
+faiss-cpu
+pandas
+networkx
+python-louvain
+rank-bm25
+tqdm
+pypdf
+docx2txt
