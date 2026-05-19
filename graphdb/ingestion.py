@@ -1,64 +1,38 @@
 from graphdb.neo4j_client import run_query
 
-
-
-def create_document(doc):
-
+def create_documents_batch(docs):
     query = """
-    MERGE (d:Document {
-        name: $name
-    })
-
-    SET d.content = $content
-    SET d.filepath = $filepath
+    UNWIND $docs AS doc
+    MERGE (d:Document {name: doc.name})
+    SET d.content = doc.content,
+        d.filepath = doc.filepath
     """
+    run_query(query, {"docs": docs})
 
-    run_query(query, doc)
-
-
-
-def create_entity(entity):
-
+def create_entities_batch(entities):
     query = """
-    MERGE (e:Entity {
-        id: $id
-    })
-
-    SET e.type = $type
-    SET e.description = $description
+    UNWIND $entities AS e
+    MERGE (ent:Entity {id: e.id})
+    SET ent.type = e.type,
+        ent.description = e.description
     """
+    run_query(query, {"entities": entities})
 
-    run_query(query, entity)
-
-
-
-def create_relationship(rel):
-
+def create_relationships_batch(relationships):
     query = """
-    MATCH (a:Entity {id:$source})
-    MATCH (b:Entity {id:$target})
-
-    MERGE (a)-[r:RELATED_TO {
-        relation: $relation
-    }]->(b)
-
-    SET r.description = $description
+    UNWIND $rels AS r
+    MATCH (a:Entity {id: r.source})
+    MATCH (b:Entity {id: r.target})
+    MERGE (a)-[rel:RELATED_TO {relation: r.relation}]->(b)
+    SET rel.description = r.description
     """
+    run_query(query, {"rels": relationships})
 
-    run_query(query, rel)
-
-
-
-def connect_document(entity_id, document_name):
-
+def connect_documents_batch(connections):
     query = """
-    MATCH (e:Entity {id:$entity})
-    MATCH (d:Document {name:$document})
-
+    UNWIND $conn AS c
+    MATCH (e:Entity {id: c.entity})
+    MATCH (d:Document {name: c.document})
     MERGE (e)-[:MENTIONED_IN]->(d)
     """
-
-    run_query(query, {
-        "entity": entity_id,
-        "document": document_name
-    })
+    run_query(query, {"conn": connections})
