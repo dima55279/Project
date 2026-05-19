@@ -12,3 +12,4 @@ python-dotenv
 pymupdf
 python-docx
 unstructured
+tqdm

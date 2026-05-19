@@ -26,9 +26,9 @@ from generation.final_answer import (
 
 from config import OUTPUT_DIR
 
+from tqdm import tqdm
 
 INPUT_FILE = "questions.csv"
-
 
 
 def process_question(question):
@@ -73,30 +73,21 @@ def process_question(question):
 
 
 def main():
-
     df = pd.read_csv(INPUT_FILE)
+    print(f"Загружено вопросов: {len(df)}")
 
     results = []
 
-    for _, row in df.iterrows():
-
-        result = process_question(
-            row["question"]
-        )
-
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Обработка вопросов", unit="q"):
+        result = process_question(row["question"])
         results.append(result)
 
     output = pd.DataFrame(results)
 
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output.to_csv(OUTPUT_DIR / "results.csv", index=False)
 
-    output.to_csv(
-        OUTPUT_DIR / "results.csv",
-        index=False
-    )
+    print(f"✅ Готово! Результаты сохранены в {OUTPUT_DIR / 'results.csv'}")
 
 
 if __name__ == "__main__":
