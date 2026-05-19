@@ -14,10 +14,9 @@ NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "password"
 
 # MODELS
-OLLAMA_MODEL = "mistral"        # можно попробовать llama3.1:8b или phi3:medium
+OLLAMA_MODEL = "mistral"   # Рекомендую: llama3.1:8b или phi3:medium
 TEMPERATURE = 0
-MAX_DEPTH = 3
 
 # OPTIMIZATION
-BATCH_SIZE = 10                  # сколько документов в одном LLM-запросе
-NUM_WORKERS = 5                 # параллельных потоков
+BATCH_SIZE = 8                    # документов на один LLM-запрос
+NUM_WORKERS = 8                   # потоков для загрузки и обработки

@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-import math
 
 from indexing.loaders import load_documents
 from indexing.extraction import extract_graph_batch
@@ -17,7 +16,6 @@ from config import DOCS_DIR, GRAPH_EXPORT_DIR, BATCH_SIZE, NUM_WORKERS
 
 
 def process_batch(batch_docs):
-    """Обрабатывает батч документов"""
     texts = [doc.page_content for doc in batch_docs]
     batch_meta = [{
         "name": doc.metadata["source"],
@@ -25,31 +23,35 @@ def process_batch(batch_docs):
         "filepath": doc.metadata["filepath"]
     } for doc in batch_docs]
 
-    # Извлечение
     extracted = extract_graph_batch(texts)
     
     entities = extracted.get("entities", [])
     relations = extracted.get("relationships", [])
 
+    connections = [
+        {"entity": e["id"], "document": meta["name"]}
+        for e in entities for meta in batch_meta
+    ]
+
     return {
         "documents": batch_meta,
         "entities": entities,
         "relations": relations,
-        "connections": [
-            {"entity": e["id"], "document": meta["name"]}
-            for e in entities for meta in batch_meta
-        ]
+        "connections": connections
     }
 
 
 def main():
-    print("🚀 Запуск оптимизированной индексации...")
+    print("🚀 Запуск оптимизированной индексации с параллельной загрузкой...")
 
-    # 1. Загрузка
+    # 1. Параллельная загрузка файлов
     docs = load_documents(DOCS_DIR)
-    print(f"📄 Найдено документов: {len(docs)}")
 
-    # 2. Batch processing
+    if not docs:
+        print("❌ Документы не найдены!")
+        return
+
+    # 2. Batch extraction
     batches = [docs[i:i + BATCH_SIZE] for i in range(0, len(docs), BATCH_SIZE)]
     
     all_entities = []
@@ -57,10 +59,10 @@ def main():
     all_connections = []
     all_documents = []
 
-    print(f"🔄 Обработка {len(batches)} батчей по {BATCH_SIZE} документов...")
+    print(f"🔄 Обработка {len(batches)} батчей (по {BATCH_SIZE} документов)...")
 
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-        future_to_batch = {executor.submit(process_batch, batch): batch for batch in batches}
+        future_to_batch = {executor.submit(process_batch, batch): i for i, batch in enumerate(batches)}
         
         for future in tqdm(as_completed(future_to_batch), total=len(batches), desc="Извлечение графов"):
             result = future.result()
@@ -70,13 +72,13 @@ def main():
             all_connections.extend(result["connections"])
 
     # 3. Массовое сохранение в Neo4j
-    print("💾 Сохранение в Neo4j...")
+    print("💾 Сохранение в Neo4j (batch)...")
     create_documents_batch(all_documents)
     create_entities_batch(all_entities)
     create_relationships_batch(all_relations)
     connect_documents_batch(all_connections)
 
-    # 4. Сообщества и суммаризация
+    # 4. Сообщества
     print("👥 Построение сообществ...")
     communities = build_communities()
     save_json(GRAPH_EXPORT_DIR / "communities.json", communities)
@@ -88,8 +90,8 @@ def main():
     
     save_json(GRAPH_EXPORT_DIR / "summaries.json", summaries)
 
-    print("🎉 Индексация успешно завершена!")
-    print(f"   Сущностей: {len(all_entities)} | Отношений: {len(all_relations)}")
+    print("🎉 Индексация завершена!")
+    print(f"   Документов: {len(all_documents)} | Сущностей: {len(all_entities)} | Отношений: {len(all_relations)}")
 
 
 if __name__ == "__main__":
