@@ -22,41 +22,42 @@ def get_loader(path: Path):
 
 
 def smart_split_markdown(text: str, source_name: str):
-    """Умное разделение юридических .md документов"""
-    # Разделяем по основным заголовкам
-    sections = re.split(r'(^##\s+|^###\s+|^####\s+)', text, flags=re.MULTILINE)
+    """Умное разделение по структуре Markdown (главы, статьи)"""
+    # Разбиваем по заголовкам
+    sections = re.split(r'(^#{1,4}\s+.+?$)', text, flags=re.MULTILINE)
     
     chunks = []
     current_chunk = ""
-    current_title = ""
+    current_title = "Введение"
 
-    for i in range(len(sections)):
+    i = 0
+    while i < len(sections):
         part = sections[i].strip()
-        if not part:
-            continue
-            
-        if re.match(r'^#{2,4}\s+', part):  # это заголовок
+        if re.match(r'^#{1,4}\s+', part):
             current_title = part
+            i += 1
             continue
+        
+        if part:
+            if len(current_chunk) > 14000 or len(part) > 12000:
+                if current_chunk.strip():
+                    chunks.append({
+                        "content": current_title + "\n\n" + current_chunk.strip(),
+                        "metadata": {
+                            "source": source_name,
+                            "section_title": current_title,
+                            "is_chunked": True
+                        }
+                    })
+                current_chunk = part
+            else:
+                current_chunk += "\n\n" + part
+        i += 1
 
-        if len(current_chunk) > 15000 or (current_chunk and len(part) > 10000):
-            if current_chunk.strip():
-                chunks.append({
-                    "content": current_title + "\n\n" + current_chunk,
-                    "metadata": {
-                        "source": source_name,
-                        "section_title": current_title,
-                        "is_chunked": True
-                    }
-                })
-            current_chunk = part
-        else:
-            current_chunk += "\n\n" + part
-
-    # Последний кусок
+    # Добавляем последний кусок
     if current_chunk.strip():
         chunks.append({
-            "content": current_title + "\n\n" + current_chunk,
+            "content": current_title + "\n\n" + current_chunk.strip(),
             "metadata": {
                 "source": source_name,
                 "section_title": current_title,
@@ -78,16 +79,17 @@ def load_single_file(file_path: Path):
 
         for doc in docs:
             source = file_path.name
-            content = doc.page_content
+            content = doc.page_content.strip()
 
-            if len(content) > 8000 and file_path.suffix.lower() in {".md", ".txt"}:
+            if len(content) > 7500 and file_path.suffix.lower() in {".md", ".txt"}:
                 print(f"✂️ Умное разделение: {source} ({len(content):,} символов)")
-                split_docs = smart_split_markdown(content, source)
+                split_items = smart_split_markdown(content, source)
                 
-                for item in split_docs:
+                for item in split_items:
                     new_doc = doc.copy()
                     new_doc.page_content = item["content"]
                     new_doc.metadata.update(item["metadata"])
+                    new_doc.metadata["filepath"] = str(file_path)
                     all_chunks.append(new_doc)
             else:
                 doc.metadata["source"] = source
@@ -108,13 +110,14 @@ def load_documents(folder):
     
     print(f"📁 Найдено файлов: {len(files)}")
 
-    all_docs = []
+    all_docs = []                     # ← Главная переменная
+    
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
         future_to_file = {executor.submit(load_single_file, f): f for f in files}
         
         for future in tqdm(as_completed(future_to_file), total=len(files), desc="Загрузка + умное разделение"):
             docs = future.result()
-            all_chunks.extend(docs)   # all_docs -> all_chunks (опечатка исправлена)
+            all_docs.extend(docs)     # ← Исправлено!
     
     print(f"✅ Загружено документов/секций: {len(all_docs)}")
     return all_docs
