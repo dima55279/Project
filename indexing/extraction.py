@@ -3,20 +3,17 @@ from utils.llm import llm
 from utils.parsing import safe_json_parse
 
 PROMPT = ChatPromptTemplate.from_template("""
-Ты система извлечения knowledge graph. Извлеки сущности, отношения, юридические концепции и ссылки.
+Ты эксперт по извлечению knowledge graph из нормативно-правовых и технических документов.
 
-Верни строго JSON в формате:
+Извлеки важные сущности и отношения из предоставленного раздела.
 
+Верни строго валидный JSON:
 {{
-  "entities": [
-    {{"id": "Короткий уникальный id", "type": "PERSON|ORGANIZATION|CONCEPT|LAW|...", "description": "..." }}
-  ],
-  "relationships": [
-    {{"source": "id1", "target": "id2", "relation": "RELATION_TYPE", "description": "..." }}
-  ]
+  "entities": [{{"id": "...", "type": "...", "description": "..."}}],
+  "relationships": [{{"source": "...", "target": "...", "relation": "...", "description": "..."}}]
 }}
 
-Текст для анализа:
+Раздел:
 {text}
 """)
 
