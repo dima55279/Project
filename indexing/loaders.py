@@ -3,10 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import re
 
-from langchain_community.document_loaders import (
-    PyPDFLoader, TextLoader, Docx2txtLoader
-)
-
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from config import NUM_WORKERS
 
 
@@ -22,49 +19,24 @@ def get_loader(path: Path):
 
 
 def smart_split_markdown(text: str, source_name: str):
-    """Умное разделение по структуре Markdown (главы, статьи)"""
-    # Разбиваем по заголовкам
-    sections = re.split(r'(^#{1,4}\s+.+?$)', text, flags=re.MULTILINE)
+    """Умное разделение по главам и статьям"""
+    # Разделяем по крупным заголовкам
+    parts = re.split(r'(^Глава\s+\d+|^Статья\s+\d+|^##\s+|^###\s+)', text, flags=re.MULTILINE)
     
     chunks = []
-    current_chunk = ""
-    current_title = "Введение"
-
-    i = 0
-    while i < len(sections):
-        part = sections[i].strip()
-        if re.match(r'^#{1,4}\s+', part):
-            current_title = part
-            i += 1
-            continue
-        
-        if part:
-            if len(current_chunk) > 14000 or len(part) > 12000:
-                if current_chunk.strip():
-                    chunks.append({
-                        "content": current_title + "\n\n" + current_chunk.strip(),
-                        "metadata": {
-                            "source": source_name,
-                            "section_title": current_title,
-                            "is_chunked": True
-                        }
-                    })
-                current_chunk = part
-            else:
-                current_chunk += "\n\n" + part
-        i += 1
-
-    # Добавляем последний кусок
-    if current_chunk.strip():
-        chunks.append({
-            "content": current_title + "\n\n" + current_chunk.strip(),
-            "metadata": {
-                "source": source_name,
-                "section_title": current_title,
-                "is_chunked": True
-            }
-        })
-
+    current = ""
+    
+    for part in parts:
+        if len(current) > 22000 and len(part.strip()) > 1000:
+            if current.strip():
+                chunks.append(current.strip())
+            current = part
+        else:
+            current += part
+    
+    if current.strip():
+        chunks.append(current.strip())
+    
     return chunks
 
 
@@ -81,15 +53,19 @@ def load_single_file(file_path: Path):
             source = file_path.name
             content = doc.page_content.strip()
 
-            if len(content) > 7500 and file_path.suffix.lower() in {".md", ".txt"}:
-                print(f"✂️ Умное разделение: {source} ({len(content):,} символов)")
+            if len(content) > 8000 and file_path.suffix.lower() in {".md", ".txt"}:
+                console.print(f"[yellow]✂️ Умное разделение:[/yellow] {source} ({len(content):,} символов)")
                 split_items = smart_split_markdown(content, source)
                 
                 for item in split_items:
                     new_doc = doc.copy()
-                    new_doc.page_content = item["content"]
-                    new_doc.metadata.update(item["metadata"])
-                    new_doc.metadata["filepath"] = str(file_path)
+                    new_doc.page_content = item
+                    new_doc.metadata.update({
+                        "source": source,
+                        "filepath": str(file_path),
+                        "is_chunked": True,
+                        "section_title": item[:200]
+                    })
                     all_chunks.append(new_doc)
             else:
                 doc.metadata["source"] = source
@@ -99,25 +75,23 @@ def load_single_file(file_path: Path):
 
         return all_chunks
     except Exception as e:
-        print(f"⚠️ Ошибка загрузки {file_path.name}: {e}")
+        console.print(f"[red]Ошибка загрузки {file_path.name}: {e}[/red]")
         return []
 
 
 def load_documents(folder):
     folder = Path(folder)
-    files = [f for f in folder.iterdir() 
-             if f.is_file() and f.suffix.lower() in {".pdf", ".txt", ".md", ".docx"}]
+    files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in {".pdf", ".txt", ".md", ".docx"}]
     
-    print(f"📁 Найдено файлов: {len(files)}")
+    console.print(f"[bold]Найдено файлов: {len(files)}[/bold]")
 
-    all_docs = []                     # ← Главная переменная
-    
+    all_docs = []
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
         future_to_file = {executor.submit(load_single_file, f): f for f in files}
         
-        for future in tqdm(as_completed(future_to_file), total=len(files), desc="Загрузка + умное разделение"):
+        for future in tqdm(as_completed(future_to_file), total=len(files), desc="Загрузка документов"):
             docs = future.result()
-            all_docs.extend(docs)     # ← Исправлено!
+            all_docs.extend(docs)
     
-    print(f"✅ Загружено документов/секций: {len(all_docs)}")
+    console.print(f"[bold green]Загружено документов/секций: {len(all_docs)}[/bold green]")
     return all_docs

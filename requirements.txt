@@ -13,3 +13,4 @@ pymupdf
 python-docx
 unstructured
 tqdm
+rich

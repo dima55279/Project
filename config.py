@@ -7,6 +7,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 GRAPH_EXPORT_DIR = BASE_DIR / "storage"
 COMMUNITIES_DIR = GRAPH_EXPORT_DIR / "communities"
 RAW_EXPORT_DIR = GRAPH_EXPORT_DIR / "raw"
+DEBUG_DIR = GRAPH_EXPORT_DIR / "debug_extraction"
 
 # NEO4J
 NEO4J_URI = "bolt://localhost:7687"

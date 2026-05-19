@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from rich.console import Console
 
 from indexing.loaders import load_documents
 from indexing.extraction import extract_graph_batch
@@ -14,6 +15,7 @@ from indexing.summarization import summarize_community
 from utils.storage import save_json
 from config import DOCS_DIR, GRAPH_EXPORT_DIR, BATCH_SIZE, NUM_WORKERS
 
+console = Console()
 
 def process_batch(batch_docs):
     texts = [doc.page_content for doc in batch_docs]
