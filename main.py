@@ -1,32 +1,103 @@
 import pandas as pd
-from tqdm import tqdm
 
-from generation.graph_pipeline import (
-    run_graphrag
+from agents.planner import (
+    choose_strategy
 )
 
-from config import (
-    QUESTIONS_FILE,
-    RESULTS_DIR
+from agents.graph_agent import (
+    graph_reasoning
 )
 
-questions = pd.read_csv(
-    QUESTIONS_FILE
+from agents.synthesis_agent import (
+    synthesize_answer
 )
 
-results = []
+from agents.citation_agent import (
+    build_citations
+)
 
-for _, row in tqdm(questions.iterrows(), total=len(questions)):
-    result = run_graphrag(
-        row["question"]
+from retrieval.evidence_collector import (
+    collect_evidence
+)
+
+from generation.final_answer import (
+    build_output
+)
+
+from config import OUTPUT_DIR
+
+
+INPUT_FILE = "questions.csv"
+
+
+
+def process_question(question):
+
+    strategy = choose_strategy(question)
+
+    graph_result = graph_reasoning(question)
+
+    entities = graph_result["entities"]
+
+    relations = graph_result["neighbors"]
+
+    evidence = collect_evidence(entities)
+
+    citations = build_citations(evidence)
+
+    answer = synthesize_answer(
+        question,
+        entities,
+        relations,
+        citations["evidence"]
     )
-    results.append(result)
 
-output = pd.DataFrame(results)
+    graph_paths = []
 
-output.to_csv(
-    f"{RESULTS_DIR}/results.csv",
-    index=False
-)
+    for r in relations:
 
-print("DONE")
+        graph_paths.append(
+            f'{r["source"]} -> {r["relation"]} -> {r["target"]}'
+        )
+
+    return build_output(
+        question=question,
+        answer=answer,
+        documents=citations["documents"],
+        entities=entities,
+        graph_paths=graph_paths,
+        evidence=citations["evidence"],
+        mode=strategy
+    )
+
+
+
+def main():
+
+    df = pd.read_csv(INPUT_FILE)
+
+    results = []
+
+    for _, row in df.iterrows():
+
+        result = process_question(
+            row["question"]
+        )
+
+        results.append(result)
+
+    output = pd.DataFrame(results)
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    output.to_csv(
+        OUTPUT_DIR / "results.csv",
+        index=False
+    )
+
+
+if __name__ == "__main__":
+    main()

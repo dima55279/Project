@@ -1,16 +1,29 @@
-import community.community_louvain as community_louvain
+from graphdb.neo4j_client import run_query
 
-def detect_communities(graph):
-    undirected = graph.to_undirected()
-    partition = community_louvain.best_partition(
-        undirected
-    )
+
+
+def build_communities():
+
+    query = """
+    MATCH (e:Entity)
+
+    RETURN e.id as entity
+    """
+
+    rows = run_query(query)
+
+    entities = [r["entity"] for r in rows]
+
     communities = {}
 
-    for node, community_id in partition.items():
-        communities.setdefault(
-            community_id,
-            []
-        ).append(node)
+    chunk_size = 20
+
+    cid = 0
+
+    for i in range(0, len(entities), chunk_size):
+
+        communities[str(cid)] = entities[i:i + chunk_size]
+
+        cid += 1
 
     return communities

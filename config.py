@@ -1,24 +1,30 @@
-DOCS_DIR = "./data/docs"
-QUESTIONS_FILE = "./data/questions/questions_500.csv"
+from pathlib import Path
 
-FAISS_DIR = "./storage/faiss_store"
-GRAPH_PATH = "./storage/graph.gpickle"
-ENTITIES_PATH = "./storage/entities.json"
-RELATIONS_PATH = "./storage/relationships.json"
-COMMUNITIES_PATH = "./storage/communities.json"
-SUMMARIES_PATH = "./storage/summaries.json"
+BASE_DIR = Path(__file__).resolve().parent
 
-RESULTS_DIR = "./results"
+DOCS_DIR = BASE_DIR / "documents"
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 150
+OUTPUT_DIR = BASE_DIR / "outputs"
 
-TOP_K = 20
-RERANK_TOP_K = 5
-GRAPH_HOPS = 2
+GRAPH_EXPORT_DIR = BASE_DIR / "storage"
 
-EMBED_MODEL = "intfloat/multilingual-e5-base"
-RERANK_MODEL = "BAAI/bge-reranker-base"
+COMMUNITIES_DIR = GRAPH_EXPORT_DIR / "communities"
+
+RAW_EXPORT_DIR = GRAPH_EXPORT_DIR / "raw"
+
+
+# NEO4J
+
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_USER = "neo4j"
+NEO4J_PASSWORD = "password"
+
+
+# MODELS
+
 OLLAMA_MODEL = "mistral"
 
-MAX_WORKERS = 10
+TEMPERATURE = 0
+
+MAX_DEPTH = 3
+

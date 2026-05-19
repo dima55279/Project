@@ -1,38 +1,23 @@
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 
-from config import OLLAMA_MODEL
+from utils.llm import llm
 
-llm = ChatOllama(
-    model=OLLAMA_MODEL,
-    temperature=0
-)
 
-SUMMARY_PROMPT = ChatPromptTemplate.from_template("""
+PROMPT = ChatPromptTemplate.from_template("""
 Сделай summary сообщества knowledge graph.
 
-Entities:
+ENTITIES:
 {entities}
-
-Relationships:
-{relationships}
 """)
 
-chain = SUMMARY_PROMPT | llm
 
-def summarize_communities(graph, communities):
-    summaries = {}
 
-    for cid, nodes in communities.items():
-        relationships = []
+def summarize_community(entities):
 
-        for node in nodes:
-            for edge in graph.edges(node, data=True):
-                relationships.append(edge)
-        result = chain.invoke({
-            "entities": nodes,
-            "relationships": relationships[:50]
-        })
-        summaries[cid] = result.content
+    chain = PROMPT | llm
 
-    return summaries
+    result = chain.invoke({
+        "entities": ", ".join(entities)
+    })
+
+    return result.content

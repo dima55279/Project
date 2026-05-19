@@ -1,59 +1,90 @@
-import json
-import pickle
-
-from config import *
-
 from indexing.loaders import load_documents
-from indexing.splitter import split_documents
-from indexing.embeddings import load_embeddings
-from indexing.vector_index import build_vectorstore
-from indexing.entity_extraction import extract_graph_data
-from indexing.graph_builder import build_graph
-from indexing.community_detection import detect_communities
-from indexing.summarization import summarize_communities
 
+from indexing.extraction import extract_graph
 
-print("Loading docs...")
-docs = load_documents(DOCS_DIR)
-
-print("Splitting...")
-chunks = split_documents(docs)
-
-print("Embeddings...")
-embeddings = load_embeddings()
-
-print("Building vector store...")
-vectorstore = build_vectorstore(
-    chunks,
-    embeddings
+from graphdb.ingestion import (
+    create_document,
+    create_entity,
+    create_relationship,
+    connect_document
 )
 
-vectorstore.save_local(FAISS_DIR)
-
-print("Extracting graph...")
-extractions = extract_graph_data(chunks)
-
-print("Building graph...")
-graph = build_graph(extractions)
-
-print("Community detection...")
-communities = detect_communities(graph)
-
-print("Summarization...")
-summaries = summarize_communities(
-    graph,
-    communities
+from indexing.community_detection import (
+    build_communities
 )
 
-print("Saving graph...")
+from indexing.summarization import (
+    summarize_community
+)
 
-with open(GRAPH_PATH, "wb") as f:
-    pickle.dump(graph, f)
+from utils.storage import save_json
 
-with open(COMMUNITIES_PATH, "w", encoding="utf-8") as f:
-    json.dump(communities, f, ensure_ascii=False, indent=2)
+from config import (
+    DOCS_DIR,
+    GRAPH_EXPORT_DIR
+)
 
-with open(SUMMARIES_PATH, "w", encoding="utf-8") as f:
-    json.dump(summaries, f, ensure_ascii=False, indent=2)
 
-print("DONE")
+
+def main():
+
+    docs = load_documents(DOCS_DIR)
+
+    for doc in docs:
+
+        create_document({
+            "name": doc.metadata["source"],
+            "content": doc.page_content,
+            "filepath": doc.metadata["filepath"]
+        })
+
+        extracted = extract_graph(
+            doc.page_content
+        )
+
+        entities = extracted.get(
+            "entities",
+            []
+        )
+
+        relations = extracted.get(
+            "relationships",
+            []
+        )
+
+        for entity in entities:
+
+            create_entity(entity)
+
+            connect_document(
+                entity["id"],
+                doc.metadata["source"]
+            )
+
+        for rel in relations:
+
+            create_relationship(rel)
+
+    communities = build_communities()
+
+    save_json(
+        GRAPH_EXPORT_DIR / "communities.json",
+        communities
+    )
+
+    summaries = {}
+
+    for cid, ents in communities.items():
+
+        summaries[cid] = summarize_community(
+            ents
+        )
+
+    save_json(
+        GRAPH_EXPORT_DIR / "summaries.json",
+        summaries
+    )
+
+
+if __name__ == "__main__":
+    main()
