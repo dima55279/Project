@@ -6,65 +6,32 @@ from utils.llm import llm
 
 
 PROMPT = ChatPromptTemplate.from_template("""
-Ты система поиска ответов по документам.
+Ты — высококвалифицированный эксперт по российскому законодательству.
 
-ТВОЯ ЗАДАЧА:
-дать краткий ответ ТОЛЬКО на основе fragments.
+QUESTION: {question}
 
-СТРОГО ЗАПРЕЩЕНО:
-- придумывать информацию
-- использовать знания вне fragments
-- переводить текст
-- писать JSON
-- писать markdown
-- делать списки
-- делать разделы
-- делать пояснения
-- рассуждать
+КЛЮЧЕВЫЕ СУЩНОСТИ:
+{entities}
 
-ФОРМАТ ОТВЕТА:
-- обычный текст
-- только русский язык
+ФАКТЫ ИЗ ДОКУМЕНТОВ:
+{facts}
 
-Если fragments не содержат ответа:
-ответь:
-Недостаточно информации.
-
-QUESTION:
-{question}
-
-FRAGMENTS:
+ДОКАЗАТЕЛЬСТВА:
 {evidence}
+
+Отвечай **только на русском**, структурировано, с ссылками на статьи где возможно.
 """)
 
 
-def synthesize_answer(
-    question,
-    entities,
-    relations,
-    evidence
-):
+def synthesize_answer(question, entities, facts, evidence):
+    entities_str = "\n".join([f"- {e['id']} ({e.get('type','')})" for e in entities[:30]])
+    facts_str = "\n".join([f"- {f['statement']}" for f in facts[:20]])
+    evidence_str = str(evidence)[:15000]
 
-    if not evidence:
-
-        return "Недостаточно информации."
-
-    chain = PROMPT | llm
-
-    result = chain.invoke({
+    result = (PROMPT | llm).invoke({
         "question": question,
-        "evidence": "\n\n".join(evidence[:5])
+        "entities": entities_str,
+        "facts": facts_str,
+        "evidence": evidence_str
     })
-
-    text = result.content.strip()
-
-    text = text.replace("\n", " ")
-
-    text = text.replace('"', "'")
-
-    text = " ".join(text.split())
-
-    if text.startswith("{"):
-        return "Недостаточно информации."
-
-    return text
+    return result.content.strip()

@@ -1,26 +1,20 @@
+# agents/citation_agent.py
+
 def build_citations(evidence):
-
     documents = []
+    snippets = []
 
-    fragments = []
+    for item in evidence:
+        doc_name = item.get("document")
+        if doc_name:
+            documents.append(doc_name)
+        if item.get("content"):
+            snippets.append(item["content"][:700])
 
-    for e in evidence:
-
-        doc = e.get("document")
-
-        content = e.get("content")
-
-        if doc:
-
-            documents.append(doc)
-
-        if content:
-
-            fragments.append(
-                content[:1000]
-            )
+    # Убираем дубликаты, сохраняя порядок
+    documents = list(dict.fromkeys(documents))
 
     return {
-        "documents": list(set(documents)),
-        "evidence": fragments
+        "documents": documents,
+        "evidence": snippets
     }
