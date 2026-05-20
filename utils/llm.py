@@ -8,8 +8,7 @@ from config import (
 
 llm = ChatOllama(
     model=OLLAMA_MODEL,
-    temperature=0.1,      # немного креативности, но не сильно
-    format="json",
+    temperature=0,
     timeout=120,
     max_tokens=4096
 )

@@ -10,7 +10,9 @@ def build_output(
     return {
         "question": question,
         "answer": answer,
-        "document": ", ".join(
-            list(set(documents))
-        ) if documents else "-"
+        "document": (
+            ", ".join(documents)
+            if documents
+            else "-"
+        )
     }

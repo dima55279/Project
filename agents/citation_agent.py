@@ -2,19 +2,25 @@ def build_citations(evidence):
 
     documents = []
 
-    snippets = []
+    fragments = []
 
-    for item in evidence:
+    for e in evidence:
 
-        documents.append(
-            item["document"]
-        )
+        doc = e.get("document")
 
-        snippets.append(
-            item["content"][:500]
-        )
+        content = e.get("content")
+
+        if doc:
+
+            documents.append(doc)
+
+        if content:
+
+            fragments.append(
+                content[:1000]
+            )
 
     return {
         "documents": list(set(documents)),
-        "evidence": snippets
+        "evidence": fragments
     }

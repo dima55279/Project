@@ -6,39 +6,34 @@ from utils.llm import llm
 
 
 PROMPT = ChatPromptTemplate.from_template("""
-Ты retrieval QA система.
+Ты система поиска ответов по документам.
 
-Отвечай строго ТОЛЬКО по предоставленным fragments.
+ТВОЯ ЗАДАЧА:
+дать краткий ответ ТОЛЬКО на основе fragments.
 
-Запрещено:
+СТРОГО ЗАПРЕЩЕНО:
 - придумывать информацию
-- делать выводы вне текста
+- использовать знания вне fragments
+- переводить текст
 - писать JSON
 - писать markdown
-- создавать списки
-- создавать разделы
-- добавлять пояснения
-- писать рассуждения
+- делать списки
+- делать разделы
+- делать пояснения
+- рассуждать
 
-Требования:
-- короткий factual answer
-- plain text
-- только информация из fragments
+ФОРМАТ ОТВЕТА:
+- обычный текст
+- только русский язык
 
-Если информации недостаточно:
+Если fragments не содержат ответа:
 ответь:
 Недостаточно информации.
 
 QUESTION:
 {question}
 
-GRAPH ENTITIES:
-{entities}
-
-GRAPH RELATIONS:
-{relations}
-
-TEXT FRAGMENTS:
+FRAGMENTS:
 {evidence}
 """)
 
@@ -50,13 +45,15 @@ def synthesize_answer(
     evidence
 ):
 
+    if not evidence:
+
+        return "Недостаточно информации."
+
     chain = PROMPT | llm
 
     result = chain.invoke({
         "question": question,
-        "entities": str(entities),
-        "relations": str(relations),
-        "evidence": "\n\n".join(evidence)
+        "evidence": "\n\n".join(evidence[:5])
     })
 
     text = result.content.strip()
@@ -66,5 +63,8 @@ def synthesize_answer(
     text = text.replace('"', "'")
 
     text = " ".join(text.split())
+
+    if text.startswith("{"):
+        return "Недостаточно информации."
 
     return text
