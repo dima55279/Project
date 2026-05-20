@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ARTICLE_RE = r"^##\s+Статья\s+(\d+)"
 CHAPTER_RE = r"^#\s+Глава\s+(\d+)"
