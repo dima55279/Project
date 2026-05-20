@@ -28,7 +28,7 @@ from config import OUTPUT_DIR
 
 from tqdm import tqdm
 
-INPUT_FILE = "questions.csv"
+INPUT_FILE = "questions_test.csv"
 
 
 def process_question(question):

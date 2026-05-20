@@ -5,7 +5,9 @@ import re
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from config import NUM_WORKERS
+from rich.console import Console
 
+console = Console()
 
 def get_loader(path: Path):
     suffix = path.suffix.lower()

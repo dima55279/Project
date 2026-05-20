@@ -20,4 +20,4 @@ TEMPERATURE = 0
 
 # OPTIMIZATION
 BATCH_SIZE = 8                    # документов на один LLM-запрос
-NUM_WORKERS = 8                   # потоков для загрузки и обработки
+NUM_WORKERS = 10                   # потоков для загрузки и обработки
