@@ -2,6 +2,9 @@ neo4j
 rank-bm25
 sentence-transformers
 faiss-cpu
-ollama
 numpy
+pandas
 tqdm
+ollama
+torch
+scikit-learn
