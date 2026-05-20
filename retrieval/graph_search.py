@@ -69,3 +69,29 @@ def retrieve_entities(question):
     )
 
     return [r["entity"] for r in rows]
+
+
+def expand_neighbors(entities):
+
+    if not entities:
+
+        return []
+
+    query = """
+    MATCH (e:Entity)-[r:RELATED_TO]-(n:Entity)
+
+    WHERE e.id IN $entities
+
+    RETURN
+        e.id as source,
+        r.relation as relation,
+        n.id as target
+
+    LIMIT 50
+    """
+
+    rows = run_query(query, {
+        "entities": entities
+    })
+
+    return rows
