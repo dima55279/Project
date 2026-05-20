@@ -63,11 +63,7 @@ def process_question(question):
     return build_output(
         question=question,
         answer=answer,
-        documents=citations["documents"],
-        entities=entities,
-        graph_paths=graph_paths,
-        evidence=citations["evidence"],
-        mode=strategy
+        documents=citations["documents"]
     )
 
 
