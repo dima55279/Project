@@ -22,7 +22,8 @@ args = parser.parse_args()
 if args.mode == "index":
 
     indexer = Indexer()
-    indexer.build(clear_db=True)
+    indexer.clear_database()
+    indexer.build()
 
 
 elif args.mode == "chat":
