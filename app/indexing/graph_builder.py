@@ -10,7 +10,7 @@ class GraphBuilder:
 
         title = document["title"]
 
-        self.db.execute(
+        self.db.execute_write(
             """
             MERGE (d:Document {title: $title})
             """,
@@ -21,7 +21,7 @@ class GraphBuilder:
 
             section_title = section["title"]
 
-            self.db.execute(
+            self.db.execute_write(
                 """
                 MATCH (d:Document {title: $doc_title})
                 MERGE (s:Section {
@@ -37,7 +37,7 @@ class GraphBuilder:
 
             for article in section["articles"]:
 
-                self.db.execute(
+                self.db.execute_write(
                     """
                     MATCH (s:Section {
                         title: $section_title

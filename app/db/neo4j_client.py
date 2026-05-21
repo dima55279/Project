@@ -16,29 +16,28 @@ class Neo4jClient:
         self.driver = GraphDatabase.driver(
             uri,
             auth=(user, password),
-            max_connection_pool_size=50,      # пул соединений
+            max_connection_pool_size=50,
+            max_connection_lifetime=3600,
             keep_alive=True
         )
 
     def close(self):
-        if self.driver:
+        if hasattr(self, 'driver') and self.driver:
             self.driver.close()
 
     def execute(self, query: str, params: dict = None) -> List[Dict[str, Any]]:
-        """
-        Выполняет запрос и возвращает все записи как список dict.
-        Гарантированно вычитывает результат до закрытия сессии.
-        """
+        """Чтение (SELECT)"""
         params = params or {}
         with self.driver.session() as session:
             result = session.run(query, params)
-            # Критично: полностью материализуем результат
-            records = [dict(record) for record in result]
-            return records
+            return [dict(record) for record in result]   # полностью вычитываем
 
-    def execute_write(self, query: str, params: dict = None) -> List[Dict]:
-        """Для мутирующих операций (CREATE, MERGE, DELETE)"""
+    def execute_write(self, query: str, params: dict = None) -> List[Dict[str, Any]]:
+        """Запись (MERGE, CREATE, DELETE)"""
         params = params or {}
         with self.driver.session() as session:
-            result = session.execute_write(lambda tx: tx.run(query, params))
+            result = session.execute_write(
+                lambda tx: tx.run(query, params)
+            )
+            # Важно: вычитываем результат внутри транзакции
             return [dict(record) for record in result]

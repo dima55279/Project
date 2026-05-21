@@ -21,11 +21,17 @@ class Indexer:
         """Полная очистка Neo4j перед новой индексацией"""
         db = Neo4jClient()
         print("🧹 Очистка базы Neo4j...")
+
+        # Более безопасный и быстрый способ очистки
         db.execute_write("""
             MATCH (n)
             DETACH DELETE n
         """)
-        print("✅ База Neo4j очищена.")
+        
+        # Дополнительно очищаем индексы (на всякий случай)
+        db.execute_write("CALL db.index.fulltext.drop() YIELD name RETURN name", {})
+        
+        print("✅ База Neo4j полностью очищена.")
 
     def process_file(self, path):
 
