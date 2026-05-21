@@ -19,17 +19,10 @@ class Indexer:
 
     def clear_database(self):
         """Полная очистка Neo4j перед новой индексацией"""
-        db = Neo4jClient()
         print("🧹 Очистка базы Neo4j...")
-
-        # Более безопасный и быстрый способ очистки
-        db.execute_write("""
-            MATCH (n)
-            DETACH DELETE n
-        """)
         
-        # Дополнительно очищаем индексы (на всякий случай)
-        db.execute_write("CALL db.index.fulltext.drop() YIELD name RETURN name", {})
+        # Самый надёжный способ очистки
+        self.graph.db.execute_write("MATCH (n) DETACH DELETE n")
         
         print("✅ База Neo4j полностью очищена.")
 
