@@ -1,3 +1,4 @@
+# app/llm/ollama_client.py
 import ollama
 
 class OllamaClient:
@@ -16,5 +17,5 @@ class OllamaClient:
             )
             return response['message']['content']
         except Exception as e:
-            print(f"❌ Ollama error: {e}")
+            print(f"❌ Ollama error: {type(e).__name__}: {e}")
             return f"Ошибка Ollama: {str(e)}"

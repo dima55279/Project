@@ -8,18 +8,12 @@ class SynthesisAgent:
         self.llm = OllamaClient(model="mistral")
 
     def synthesize(self, question: str, evidence: list):
-        if not evidence:
-            return {
-                "answer": "Недостаточно данных в нормативной базе.",
-                "documents": []
-            }
-
         context = ""
         documents = set()
 
         for item in evidence:
-            data = item.get("data", {})
-            doc_name = data.get("document", "Неизвестный документ")
+            data = item.get("data", {}) if isinstance(item, dict) else {}
+            doc_name = data.get("document", "Unknown")
             documents.add(doc_name)
 
             context += f"""
@@ -31,22 +25,17 @@ TEXT:
 """
 
         system_prompt = """
-Ты — опытный юридический ассистент по нормативным актам РФ.
-Отвечай строго на основе предоставленного контекста.
-Если информации недостаточно — пиши: "Недостаточно данных в нормативной базе."
+Ты — юридический ассистент по нормативным актам РФ.
+Отвечай строго на основе контекста.
+Если данных недостаточно — отвечай: "Недостаточно данных в нормативной базе."
 """
 
-        user_prompt = f"""
-ВОПРОС: {question}
-
-КОНТЕКСТ:
-{context}
-"""
+        user_prompt = f"ВОПРОС: {question}\n\nКОНТЕКСТ:\n{context}"
 
         try:
             answer = self.llm.generate_with_system(system_prompt, user_prompt)
         except Exception as e:
-            answer = f"Ошибка генерации ответа: {str(e)}"
+            answer = f"Ошибка генерации: {str(e)}"
 
         return {
             "answer": answer,

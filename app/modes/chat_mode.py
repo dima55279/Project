@@ -9,5 +9,12 @@ class ChatMode:
         self.synthesis = SynthesisAgent()
 
     def ask(self, question: str):
-        evidence = self.retriever.retrieve(question)
-        return self.synthesis.synthesize(question, evidence)
+        try:
+            evidence = self.retriever.retrieve(question)
+            return self.synthesis.synthesize(question, evidence)
+        except Exception as e:
+            print(f"❌ Ошибка в ChatMode.ask(): {e}")
+            return {
+                "answer": f"Системная ошибка: {str(e)}",
+                "documents": []
+            }
