@@ -1,51 +1,43 @@
+# app/agents/synthesis_agent.py
 from app.llm.ollama_client import OllamaClient
 
 
 class SynthesisAgent:
 
     def __init__(self):
-        self.llm = OllamaClient()
+        self.llm = OllamaClient(model="mistral")
 
-    def synthesize(self,
-                   question,
-                   evidence):
-
+    def synthesize(self, question: str, evidence: list):
         context = ""
 
         documents = set()
 
         for item in evidence:
-
             data = item["data"]
-
-            documents.add(data["document"])
-
+            documents.add(data.get("document", "Unknown"))
+            
             context += f"""
-
-DOCUMENT: {data['document']}
-ARTICLE: {data['article']}
+DOCUMENT: {data.get('document', '')}
+ARTICLE: {data.get('article', '')}
 TEXT:
-{data['text']}
+{data.get('text', '')}
 
 """
 
-        prompt = f"""
-Ты юридический ассистент.
+        system_prompt = """
+Ты — опытный юридический ассистент, специализирующийся на нормативно-правовых актах РФ.
+Отвечай строго на основе предоставленного контекста.
+Если информации недостаточно — честно напиши: "Недостаточно данных в нормативной базе."
+"""
 
-Отвечай ТОЛЬКО на основе контекста.
-
-Если данных недостаточно —
-напиши:
-Недостаточно данных в нормативной базе.
-
-ВОПРОС:
-{question}
+        user_prompt = f"""
+ВОПРОС: {question}
 
 КОНТЕКСТ:
 {context}
 """
 
-        answer = self.llm.generate(prompt)
+        answer = self.llm.generate_with_system(system_prompt, user_prompt)
 
         return {
             "answer": answer,

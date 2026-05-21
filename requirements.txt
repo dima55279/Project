@@ -9,3 +9,4 @@ tqdm==4.66.4
 networkx==3.3
 requests==2.32.3
 orjson==3.10.3
+ollama>=0.4.0
